@@ -2,11 +2,14 @@
 pragma solidity ^0.7.6;
 pragma experimental ABIEncoderV2;
 
-import {Test, console} from "forge-std/Test.sol";
+import {Test, console2} from "forge-std/Test.sol";
 import {PuppyRaffle} from "../src/PuppyRaffle.sol";
-
+import {Attacker_Self_Destruct} from "../src/self_destruct.sol";
 contract PuppyRaffleTest is Test {
     PuppyRaffle puppyRaffle;
+    Attacker_Self_Destruct attacker_contract;
+    uint256 public balance;
+
     uint256 entranceFee = 1e18;
     address playerOne = address(1);
     address playerTwo = address(2);
@@ -26,6 +29,7 @@ contract PuppyRaffleTest is Test {
     //////////////////////
     /// EnterRaffle    ///
     /////////////////////
+
 
     function testCanEnterRaffle() public {
         address[] memory players = new address[](1);
@@ -212,5 +216,23 @@ contract PuppyRaffleTest is Test {
         puppyRaffle.selectWinner();
         puppyRaffle.withdrawFees();
         assertEq(address(feeAddress).balance, expectedPrizeAmount);
+    }
+    function test_strict_equality_locked_funds() public playersEntered{
+        address attacker = makeAddr("attacker");
+        vm.deal(attacker,1 ether); // Lesson learnt, remember to fund attacker with ether if you are trying to mess around with ether. Else you will be stuck finding the reasons~~ 
+        vm.startPrank(attacker);
+        attacker_contract = new Attacker_Self_Destruct{value:1 ether}(puppyRaffle); 
+        attacker_contract.attack();
+
+        emit log_uint(address(puppyRaffle).balance);
+        vm.stopPrank();
+        vm.warp(block.timestamp + duration + 1);
+        vm.roll(block.number + 1);
+
+        // uint256 expectedPrizeAmount = ((entranceFee * 4) * 20) / 100;
+
+        puppyRaffle.selectWinner();
+        vm.expectRevert(bytes("PuppyRaffle: There are currently players active!"));
+        puppyRaffle.withdrawFees();
     }
 }

@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+// @audit-issue (Filed) Outdated Version
 pragma solidity ^0.7.6;
 
 import {ERC721} from "@openzeppelin/contracts/token/ERC721/ERC721.sol";
@@ -58,6 +59,7 @@ contract PuppyRaffle is ERC721, Ownable {
     /// @param _feeAddress the address to send the fees to
     /// @param _raffleDuration the duration in seconds of the raffle
     constructor(uint256 _entranceFee, address _feeAddress, uint256 _raffleDuration) ERC721("Puppy Raffle", "PR") {
+        // @audit-issue (Filed)Lacks zero address checks
         entranceFee = _entranceFee;
         feeAddress = _feeAddress;
         raffleDuration = _raffleDuration;
@@ -77,6 +79,9 @@ contract PuppyRaffle is ERC721, Ownable {
     /// @notice duplicate entrants are not allowed
     /// @param newPlayers the list of players to enter the raffle
     function enterRaffle(address[] memory newPlayers) public payable {
+        //@audit-issue (Filed)Lack zero address checks
+        // @audit-issue (Filed)Use if statements for gas optimization 
+
         require(msg.value == entranceFee * newPlayers.length, "PuppyRaffle: Must send enough to enter raffle");
         for (uint256 i = 0; i < newPlayers.length; i++) {
             players.push(newPlayers[i]);
@@ -95,9 +100,11 @@ contract PuppyRaffle is ERC721, Ownable {
     /// @dev This function will allow there to be blank spots in the array
     function refund(uint256 playerIndex) public {
         address playerAddress = players[playerIndex];
+        // @audit-issue (Filed)Use if statements for gas optimization 
+
         require(playerAddress == msg.sender, "PuppyRaffle: Only the player can refund");
         require(playerAddress != address(0), "PuppyRaffle: Player already refunded, or is not active");
-
+        // @audit-ok Did not follow CEI/ C validation is fine, but not vulnerable to reentrancy since it uses sendValue.
         payable(msg.sender).sendValue(entranceFee);
 
         players[playerIndex] = address(0);
@@ -122,9 +129,12 @@ contract PuppyRaffle is ERC721, Ownable {
     /// @dev we use a hash of on-chain data to generate the random numbers
     /// @dev we reset the active players array after the winner is selected
     /// @dev we send 80% of the funds to the winner, the other 20% goes to the feeAddress
+    // @audit-issue Anyone can call this function missing onlyOwner modifer
     function selectWinner() external {
+        // @audit-issue Use if statements for gas optimization 
         require(block.timestamp >= raffleStartTime + raffleDuration, "PuppyRaffle: Raffle not over");
         require(players.length >= 4, "PuppyRaffle: Need at least 4 players");
+        // @audit Insecure Randomness/Weak PRNG https://github.com/crytic/slither/wiki/Detector-Documentation#weak-PRNG
         uint256 winnerIndex =
             uint256(keccak256(abi.encodePacked(msg.sender, block.timestamp, block.difficulty))) % players.length;
         address winner = players[winnerIndex];
@@ -144,19 +154,25 @@ contract PuppyRaffle is ERC721, Ownable {
         } else {
             tokenIdToRarity[tokenId] = LEGENDARY_RARITY;
         }
-
+        // @audit-ok CEI, no reentrancy
         delete players;
         raffleStartTime = block.timestamp;
         previousWinner = winner;
         (bool success,) = winner.call{value: prizePool}("");
         require(success, "PuppyRaffle: Failed to send prize pool to winner");
+        // @audit-ok reentrancy events since is NFT it is fine and there is no other arithemtic operations
         _safeMint(winner, tokenId);
     }
 
     /// @notice this function will withdraw the fees to the feeAddress
+    // @audit-issue Anyone can call this function missing onlyOwner modifer
     function withdrawFees() external {
+        //@audit-issue Funds can be locked due to strict equality https://github.com/crytic/slither/wiki/Detector-Documentation#dangerous-strict-equalities
+        // @audit-issue (Filed)Use if statements for gas optimization 
+        // @audit-issue I see the intention of this require statement, but the problem is if a malicious attacker self destruct and send ether to this contract, funds will still be locked
         require(address(this).balance == uint256(totalFees), "PuppyRaffle: There are currently players active!");
         uint256 feesToWithdraw = totalFees;
+        //@audit-ok C-EI but the check above used is wrong
         totalFees = 0;
         (bool success,) = feeAddress.call{value: feesToWithdraw}("");
         require(success, "PuppyRaffle: Failed to withdraw fees");
@@ -186,7 +202,9 @@ contract PuppyRaffle is ERC721, Ownable {
 
     /// @notice this function will return the URI for the token
     /// @param tokenId the Id of the NFT
+    // @audit-ok No issue
     function tokenURI(uint256 tokenId) public view virtual override returns (string memory) {
+        // @audit-issue Use if statements for gas optimization 
         require(_exists(tokenId), "PuppyRaffle: URI query for nonexistent token");
 
         uint256 rarity = tokenIdToRarity[tokenId];
